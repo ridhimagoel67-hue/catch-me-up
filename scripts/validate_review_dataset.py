@@ -9,7 +9,7 @@ from catchmeup.engine.chunking import chunk_all
 
 SOURCE_FILE = Path("data/processed/gossip-girl_s1.json")
 GENERATED_FILE = Path("data/processed/generated_questions.jsonl")
-REVIEW_FILE = Path("data/benchmark/generated_questions_review.csv")
+REVIEW_FILE = Path("data/benchmark/generated_questions_review_corrected.csv")
 REPORT_FILE = Path("data/benchmark/review_validation_report.csv")
 
 

@@ -6,12 +6,25 @@ REFUSAL_PHRASE = (
     "I couldn't find enough evidence in the content available to you."
 )
 
-CITATION_PATTERN = re.compile(r"\[([^\[\]]+)\]")
+# Accept both [chunk-id] and 【chunk-id】 citation formats.
+CITATION_PATTERN = re.compile(
+    r"\[([^\[\]]+)\]|【([^【】]+)】"
+)
 
 
 def extract_citation_ids(answer: str) -> list[str]:
-    """Extract citation IDs written inside square brackets."""
-    return CITATION_PATTERN.findall(answer)
+    """Extract citation IDs from square or full-width brackets."""
+    if not isinstance(answer, str):
+        return []
+
+    citation_ids = []
+
+    for match in CITATION_PATTERN.finditer(answer):
+        # One capture group is populated, depending on the format.
+        citation_id = match.group(1) or match.group(2)
+        citation_ids.append(citation_id.strip())
+
+    return citation_ids
 
 
 def validate_citations(
@@ -20,10 +33,13 @@ def validate_citations(
     allow_uncited: bool = False,
 ) -> tuple[bool, list[str]]:
     """
-    Validate citation IDs and optionally require a citation.
+    Validate citations against IDs supplied to the model.
 
     Returns:
-        A boolean indicating validity and a list of citation issues.
+        (is_valid, issues)
+
+    Refusal answers may omit citations when allow_uncited=True.
+    Any extracted citation must still refer to a supplied chunk.
     """
     cited_ids = extract_citation_ids(answer)
 
@@ -36,4 +52,7 @@ def validate_citations(
         if citation_id not in supplied_chunk_ids
     ]
 
-    return len(invalid_citations) == 0, invalid_citations
+    if invalid_citations:
+        return False, invalid_citations
+
+    return True, []

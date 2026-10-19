@@ -1,39 +1,39 @@
 ﻿id,chunk_id,review_status,validation_status,issues
-gen-s01e01-c01,s01e01-c01,approved,CHECK,evidence_differs_from_original_quote; answer_changed_from_original
-gen-s01e01-c02,s01e01-c02,approved,CHECK,evidence_differs_from_original_quote; question_changed_from_original; answer_changed_from_original
-gen-s01e01-c03,s01e01-c03,approved,CHECK,evidence_differs_from_original_quote; question_changed_from_original
-gen-s01e02-c01,s01e02-c01,approved,CHECK,evidence_differs_from_original_quote; question_changed_from_original; answer_changed_from_original
-gen-s01e02-c02,s01e02-c02,approved,CHECK,evidence_differs_from_original_quote; question_changed_from_original
-gen-s01e02-c03,s01e02-c03,approved,CHECK,evidence_differs_from_original_quote; question_changed_from_original; answer_changed_from_original
-gen-s01e02-c04,s01e02-c04,approved,CHECK,evidence_differs_from_original_quote; question_changed_from_original; answer_changed_from_original
-gen-s01e02-c05,s01e02-c05,approved,CHECK,evidence_differs_from_original_quote; question_changed_from_original; answer_changed_from_original
-gen-s01e02-c06,s01e02-c06,approved,CHECK,evidence_differs_from_original_quote; question_changed_from_original; answer_changed_from_original
-gen-s01e02-c08,s01e02-c08,approved,CHECK,evidence_differs_from_original_quote; question_changed_from_original; answer_changed_from_original
-gen-s01e02-c09,s01e02-c09,approved,CHECK,evidence_differs_from_original_quote; answer_changed_from_original
-gen-s01e02-c10,s01e02-c10,approved,CHECK,evidence_differs_from_original_quote; question_changed_from_original; answer_changed_from_original
-gen-s01e02-c07,s01e02-c07,approved,CHECK,evidence_differs_from_original_quote; question_changed_from_original; answer_changed_from_original
-gen-s01e02-c11,s01e02-c11,approved,CHECK,evidence_differs_from_original_quote; question_changed_from_original; answer_changed_from_original
-gen-s01e02-c12,s01e02-c12,approved,CHECK,evidence_differs_from_original_quote; question_changed_from_original; answer_changed_from_original
-gen-s01e02-c13,s01e02-c13,approved,CHECK,evidence_differs_from_original_quote; question_changed_from_original; answer_changed_from_original
-gen-s01e02-c14,s01e02-c14,approved,CHECK,evidence_differs_from_original_quote; question_changed_from_original; answer_changed_from_original
-gen-s01e02-c15,s01e02-c15,needs_edit,CHECK,evidence_differs_from_original_quote; question_changed_from_original; answer_changed_from_original
-gen-s01e02-c16,s01e02-c16,approved,CHECK,evidence_differs_from_original_quote; question_changed_from_original; answer_changed_from_original
-gen-s01e02-c17,s01e02-c17,approved,CHECK,evidence_differs_from_original_quote; question_changed_from_original; answer_changed_from_original
-gen-s01e02-c18,s01e02-c18,approved,CHECK,evidence_differs_from_original_quote; question_changed_from_original; answer_changed_from_original
-gen-s01e02-c19,s01e02-c19,approved,CHECK,evidence_differs_from_original_quote; question_changed_from_original; answer_changed_from_original
-gen-s01e02-c20,s01e02-c20,approved,CHECK,evidence_differs_from_original_quote; question_changed_from_original; answer_changed_from_original
-gen-s01e02-c21,s01e02-c21,needs_edit,CHECK,evidence_differs_from_original_quote; question_changed_from_original; answer_changed_from_original
-gen-s01e03-c01,s01e03-c01,approved,CHECK,evidence_differs_from_original_quote; question_changed_from_original; answer_changed_from_original
-gen-s01e03-c02,s01e03-c02,approved,CHECK,evidence_differs_from_original_quote; question_changed_from_original; answer_changed_from_original
-gen-s01e03-c03,s01e03-c03,needs_edit,CHECK,evidence_differs_from_original_quote; question_changed_from_original; answer_changed_from_original
-gen-s01e03-c04,s01e03-c04,needs_edit,CHECK,evidence_differs_from_original_quote; question_changed_from_original; answer_changed_from_original
-gen-s01e03-c05,s01e03-c05,approved,CHECK,evidence_differs_from_original_quote; question_changed_from_original; answer_changed_from_original
-gen-s01e03-c06,s01e03-c06,approved,CHECK,evidence_differs_from_original_quote; question_changed_from_original; answer_changed_from_original
-gen-s01e03-c07,s01e03-c07,approved,CHECK,evidence_differs_from_original_quote; question_changed_from_original; answer_changed_from_original
-gen-s01e03-c08,s01e03-c08,needs_edit,CHECK,evidence_differs_from_original_quote; question_changed_from_original; answer_changed_from_original
-gen-s01e03-c09,s01e03-c09,approved,CHECK,evidence_differs_from_original_quote; question_changed_from_original
-gen-s01e03-c10,s01e03-c10,approved,CHECK,evidence_differs_from_original_quote; question_changed_from_original; answer_changed_from_original
-gen-s01e03-c11,s01e03-c11,needs_edit,CHECK,evidence_differs_from_original_quote; question_changed_from_original; answer_changed_from_original
-gen-s01e03-c12,s01e03-c12,approved,CHECK,evidence_differs_from_original_quote; answer_changed_from_original
-gen-s01e03-c13,s01e03-c13,approved,CHECK,evidence_differs_from_original_quote; question_changed_from_original; answer_changed_from_original
-gen-s01e03-c14,s01e03-c14,approved,CHECK,evidence_differs_from_original_quote; question_changed_from_original; answer_changed_from_original
+gen-s01e01-c01,s01e01-c01,pending,PASS,
+gen-s01e01-c02,s01e01-c02,pending,PASS,
+gen-s01e01-c03,s01e01-c03,pending,PASS,
+gen-s01e02-c01,s01e02-c01,pending,PASS,
+gen-s01e02-c02,s01e02-c02,pending,PASS,
+gen-s01e02-c03,s01e02-c03,pending,PASS,
+gen-s01e02-c04,s01e02-c04,pending,PASS,
+gen-s01e02-c05,s01e02-c05,pending,PASS,
+gen-s01e02-c06,s01e02-c06,pending,PASS,
+gen-s01e02-c08,s01e02-c08,pending,CHECK,question_changed_from_original
+gen-s01e02-c09,s01e02-c09,pending,PASS,
+gen-s01e02-c10,s01e02-c10,pending,PASS,
+gen-s01e02-c07,s01e02-c07,pending,PASS,
+gen-s01e02-c11,s01e02-c11,pending,PASS,
+gen-s01e02-c12,s01e02-c12,pending,PASS,
+gen-s01e02-c13,s01e02-c13,pending,PASS,
+gen-s01e02-c14,s01e02-c14,pending,PASS,
+gen-s01e02-c15,s01e02-c15,pending,PASS,
+gen-s01e02-c16,s01e02-c16,pending,PASS,
+gen-s01e02-c17,s01e02-c17,pending,PASS,
+gen-s01e02-c18,s01e02-c18,pending,PASS,
+gen-s01e02-c19,s01e02-c19,pending,PASS,
+gen-s01e02-c20,s01e02-c20,pending,PASS,
+gen-s01e02-c21,s01e02-c21,pending,PASS,
+gen-s01e03-c01,s01e03-c01,pending,PASS,
+gen-s01e03-c02,s01e03-c02,pending,PASS,
+gen-s01e03-c03,s01e03-c03,pending,PASS,
+gen-s01e03-c04,s01e03-c04,pending,PASS,
+gen-s01e03-c05,s01e03-c05,pending,PASS,
+gen-s01e03-c06,s01e03-c06,pending,PASS,
+gen-s01e03-c07,s01e03-c07,pending,PASS,
+gen-s01e03-c08,s01e03-c08,pending,PASS,
+gen-s01e03-c09,s01e03-c09,pending,PASS,
+gen-s01e03-c10,s01e03-c10,pending,PASS,
+gen-s01e03-c11,s01e03-c11,pending,PASS,
+gen-s01e03-c12,s01e03-c12,pending,PASS,
+gen-s01e03-c13,s01e03-c13,pending,PASS,
+gen-s01e03-c14,s01e03-c14,pending,PASS,

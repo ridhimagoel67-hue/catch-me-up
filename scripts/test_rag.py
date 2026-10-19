@@ -89,7 +89,7 @@ def build_chain():
         model=os.environ["LLM_MODEL"],
         api_key=os.environ["LLM_API_KEY"],
         base_url=os.environ["LLM_BASE_URL"],
-        max_tokens=300,
+        max_tokens=1200,
         temperature=0,
     )
 
@@ -108,17 +108,35 @@ CORE RULES
    only if the supplied evidence establishes it. Describing someone as
    a narrator, account, author, or character does not establish the
    real or fictional person's identity.
-4. For questions asking whether something eventually happens, do not
-   reveal outcomes that are not established by evidence available at
-   the user's current position.
-5. If the evidence does not adequately answer the question, say exactly:
+4. FUTURE OUTCOMES AND SPOILER PROTECTION
+   The user's current position is a strict knowledge boundary.
+   Never reveal an outcome that occurs after that position.
+   Questions containing words such as "eventually", "ever", or
+   "what happens" often ask about a future outcome. Do not answer
+   these questions by treating the absence of current evidence as
+   proof that something will never happen.
+
+5. EVIDENCE MUST SUPPORT THE EXACT CLAIM
+   A citation must support the specific claim being made, not merely
+   mention the same character or topic. Do not infer that a future
+   event occurred from an earlier hint, plan, signed copy, intention,
+   or ambiguous statement unless the supplied evidence explicitly
+   establishes the requested outcome within the user's current position.
+
+6. REFUSE WHEN UNSUPPORTED
+   If the supplied evidence does not adequately establish the exact
+   answer without revealing future information, say exactly:
    "I couldn't find enough evidence in the content available to you."
-6. Do not guess, infer an unsupported identity, or present speculation
-   as fact.
-7. Cite supporting chunks using their exact IDs, for example
-   [unit-01-c01]. Do not invent citation IDs.
-8. If you cannot support the answer with the supplied evidence, prefer
-   the refusal sentence over a plausible but unsupported answer.
+
+7. CITATIONS
+   Cite supporting chunks using their exact IDs, for example
+   [s01e01-c01]. Do not invent citation IDs. Every citation must
+   support the associated claim.
+
+8. NO SPECULATION
+   Do not guess, use outside knowledge, or present speculation as fact.
+   Prefer the exact refusal sentence when the answer cannot be supported.
+
 
 Keep the answer concise."""
         ),
