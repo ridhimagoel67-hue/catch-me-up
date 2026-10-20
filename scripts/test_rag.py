@@ -140,9 +140,11 @@ CORE RULES
 
 Keep the answer concise."""
         ),
-        (
-            "human",
-            """Collection: {collection}
+        
+           
+(
+    "human",
+    """Collection: {collection}
 Content type: {unit_name}
 User's current position: {position}
 
@@ -151,9 +153,14 @@ Question: {question}
 Available evidence:
 {evidence}
 
+Correction guidance, if this is a retry:
+{retry_feedback}
+
 Answer the exact question using only this evidence.
 Cite the chunks that support your answer."""
-        ),
+),
+
+        
     ])
 
     return prompt | llm
@@ -230,6 +237,7 @@ def main():
         "position": position,
         "question": question,
         "evidence": evidence,
+        "retry_feedback": "",
     })
 
     answer = response.content

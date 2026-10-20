@@ -5,13 +5,10 @@ from catchmeup.engine.workflow_state import CatchMeUpState
 
 
 def check_spoiler_safety(state: CatchMeUpState) -> dict:
-    """Apply the existing spoiler guard using trusted metadata."""
-
     expected_behavior = state.get("expected_behavior")
     current_position = state["current_position"]
     reveal_position = state.get("reveal_position")
 
-    # Do not infer a future-reveal requirement from a position alone.
     if expected_behavior != "PROTECT_FUTURE":
         return {
             "spoiler_protected": False,
@@ -19,12 +16,13 @@ def check_spoiler_safety(state: CatchMeUpState) -> dict:
             "status": "READY",
         }
 
-    # Missing trusted metadata must not be silently treated as safe.
     if reveal_position is None:
         return {
-            "spoiler_protected": False,
+            "spoiler_protected": True,
+            "answer": REFUSAL_PHRASE,
+            "refusal_reason": "MISSING_REVEAL_METADATA",
             "safety_flags": ["MISSING_REVEAL_METADATA"],
-            "status": "SAFETY_REVIEW",
+            "status": "REFUSED",
         }
 
     protected = should_protect_future(

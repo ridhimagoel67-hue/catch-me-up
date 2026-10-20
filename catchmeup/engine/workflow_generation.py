@@ -32,6 +32,7 @@ def generate_answer(state: CatchMeUpState) -> dict:
                 "position": state["current_position"],
                 "question": state["question"],
                 "evidence": state["evidence_text"],
+                "retry_feedback": state.get("retry_feedback", ""),
             }
         )
 
