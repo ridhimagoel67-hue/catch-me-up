@@ -24,21 +24,27 @@ METHODS = {
 
 
 def evaluate_method(retriever, questions, quotes, method_name, method):
+    """Evaluate ordinary retrieval without scoring unrevealed evidence."""
+
     evaluated_ranks = []
     missing_quotes = []
+    delayed_excluded = []
     leak_count = 0
 
     print("\n" + "=" * 65)
     print(f"{method_name.upper()} RETRIEVAL")
     print("=" * 65)
 
+    search_function = getattr(retriever, method)
+
     for _, row in questions.iterrows():
-        question_id = row["id"]
-        question = row["question"]
+        question_id = str(row["id"])
+        question = str(row["question"])
         asked_at = int(row["asked_at"])
+        reveal_position = int(row["reveal_position"])
 
-        search_function = getattr(retriever, method)
-
+        # Run retrieval for every question so that every result is
+        # checked for future-content leakage, even if not scoreable.
         hits = search_function(
             question,
             asked_at,
@@ -64,11 +70,21 @@ def evaluate_method(retriever, questions, quotes, method_name, method):
                 f"{chunk.label} | {chunk.text[:100]!r}"
             )
 
+        # A question with evidence revealed later must not contribute
+        # to ordinary retrieval ranking metrics.
+        if reveal_position > asked_at:
+            delayed_excluded.append(question_id)
+            print(
+                "  Ordinary retrieval metric: EXCLUDED "
+                "(evidence reveal position is later)"
+            )
+            continue
+
         quote = quotes.get(question_id)
 
         if not isinstance(quote, str) or not quote.strip():
             missing_quotes.append(question_id)
-            print("  Gold evidence rank: NOT EVALUATED")
+            print("  Gold evidence rank: NOT EVALUATED (no gold quote)")
             continue
 
         quote = quote.strip().casefold()
@@ -85,7 +101,9 @@ def evaluate_method(retriever, questions, quotes, method_name, method):
         evaluated_ranks.append(rank)
 
         if rank is None:
-            print(f"  Gold evidence rank: not found in top {SEARCH_K}")
+            print(
+                f"  Gold evidence rank: not found in top {SEARCH_K}"
+            )
         else:
             print(f"  Gold evidence rank: {rank}")
 
@@ -96,13 +114,14 @@ def evaluate_method(retriever, questions, quotes, method_name, method):
         for rank in evaluated_ranks
     )
     recall_search_k = sum(
-        rank is not None
+        rank is not None and rank <= SEARCH_K
         for rank in evaluated_ranks
     )
 
     results = {
         "method": method_name,
         "evaluated": total,
+        "delayed_excluded": len(delayed_excluded),
         "missing_quotes": len(missing_quotes),
         "leaks": leak_count,
         "rank_1": rank_1,
@@ -116,8 +135,9 @@ def evaluate_method(retriever, questions, quotes, method_name, method):
     }
 
     print(f"\n{method_name} summary")
-    print(f"Questions with gold quotes: {total}")
-    print(f"Questions without gold quotes: {len(missing_quotes)}")
+    print(f"Questions with gold quotes evaluated: {total}")
+    print(f"Delayed questions excluded: {len(delayed_excluded)}")
+    print(f"Eligible questions missing gold quotes: {len(missing_quotes)}")
     print(f"Future-content leaks: {leak_count}")
     print(f"Evidence ranked #1: {rank_1}/{total}")
     print(f"Recall@{K}: {recall_k}/{total}")
@@ -126,23 +146,72 @@ def evaluate_method(retriever, questions, quotes, method_name, method):
     print(f"Recall@{K}: {results['recall_at_k']:.3f}")
     print(f"Recall@{SEARCH_K}: {results['recall_at_search_k']:.3f}")
 
+    if delayed_excluded:
+        print("Delayed questions:", ", ".join(delayed_excluded))
+
+    if missing_quotes:
+        print("Eligible questions missing quotes:", ", ".join(missing_quotes))
+
     return results
 
 
 def main():
+    # 1. Validate required inputs.
+    required_files = [DATA, QUESTIONS, QUOTES]
+    missing_files = [str(path) for path in required_files if not path.is_file()]
+
+    if missing_files:
+        raise FileNotFoundError(
+            "Required evaluation files are missing:\n"
+            + "\n".join(missing_files)
+        )
+
+    # 2. Load the content and build one shared retriever.
     units = json.loads(DATA.read_text(encoding="utf-8"))
     chunks = chunk_all(units)
 
+    if not chunks:
+        raise ValueError("No chunks were created from the input content.")
+
     print(f"Loaded {len(units)} units and {len(chunks)} chunks.")
 
-    # Build one retriever so all methods use identical chunks and embeddings.
     retriever = Retriever(chunks, embed)
 
-    questions = pd.read_csv(QUESTIONS)
-    quote_table = pd.read_csv(QUOTES)
+    # 3. Load benchmark questions and gold evidence quotes.
+    questions = pd.read_csv(QUESTIONS, dtype={"id": str})
+    quote_table = pd.read_csv(QUOTES, dtype={"id": str})
+
+    required_question_columns = {
+        "id",
+        "asked_at",
+        "reveal_position",
+        "question",
+    }
+    missing_columns = required_question_columns - set(questions.columns)
+
+    if missing_columns:
+        raise ValueError(
+            f"{QUESTIONS} is missing columns: {sorted(missing_columns)}"
+        )
+
+    if questions["id"].duplicated().any():
+        duplicates = questions.loc[
+            questions["id"].duplicated(), "id"
+        ].tolist()
+        raise ValueError(f"Duplicate question IDs: {duplicates}")
+
+    if not {"id", "quote"}.issubset(quote_table.columns):
+        raise ValueError(f"{QUOTES} must contain 'id' and 'quote' columns.")
+
+    if quote_table["id"].duplicated().any():
+        duplicates = quote_table.loc[
+            quote_table["id"].duplicated(), "id"
+        ].tolist()
+        raise ValueError(f"Duplicate quote IDs: {duplicates}")
 
     quotes = dict(zip(quote_table["id"], quote_table["quote"]))
 
+    # 4. Compare all methods using identical questions and chunks.
     all_results = []
 
     for method_name, method in METHODS.items():
@@ -155,6 +224,7 @@ def main():
         )
         all_results.append(result)
 
+    # 5. Print a compact comparison.
     print("\n" + "=" * 65)
     print("FINAL RETRIEVAL COMPARISON")
     print("=" * 65)
@@ -164,6 +234,8 @@ def main():
     columns = [
         "method",
         "evaluated",
+        "delayed_excluded",
+        "missing_quotes",
         "top1_rate",
         "recall_at_k",
         "recall_at_search_k",
@@ -181,6 +253,7 @@ def main():
         )
     )
 
+    # 6. Fail the evaluation if any method retrieved future content.
     total_leaks = sum(result["leaks"] for result in all_results)
 
     if total_leaks:
@@ -190,6 +263,10 @@ def main():
         )
 
     print("\nAll three methods passed the position-leak check.")
+    print(
+        "Reminder: retrieval scores are based on exact gold-quote "
+        "matching and the currently annotated benchmark."
+    )
 
 
 if __name__ == "__main__":

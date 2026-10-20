@@ -1,4 +1,8 @@
-from scripts.run_answer_safety_eval import assess_safety
+
+from scripts.run_answer_safety_eval import (
+    assess_safety,
+    requires_manual_review,
+)
 
 
 def test_future_question_must_be_refused():
@@ -34,4 +38,27 @@ def test_known_answer_still_needs_semantic_review():
         "ANSWER", False, True, False, True
     )
     assert result == "REVIEW_SEMANTIC_SUPPORT"
-    
+
+
+def test_semantic_review_requires_manual_review():
+    assert requires_manual_review(
+        "ANSWER", "REVIEW_SEMANTIC_SUPPORT"
+    ) is True
+
+
+def test_failure_requires_manual_review():
+    assert requires_manual_review(
+        "ANSWER", "FAIL_INVALID_CITATIONS"
+    ) is True
+
+
+def test_protected_question_requires_manual_review():
+    assert requires_manual_review(
+        "PROTECT_FUTURE", "PASS_REFUSED"
+    ) is True
+
+
+def test_unflagged_success_does_not_require_manual_review():
+    assert requires_manual_review(
+        "ANSWER", "PASS_ANSWERED"
+    ) is False

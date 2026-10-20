@@ -2,17 +2,17 @@
 import csv
 import json
 from pathlib import Path
-from catchmeup.engine.spoiler_guard import should_protect_future
 
 import pandas as pd
 
-from catchmeup.engine.chunking import chunk_all
-from catchmeup.engine.embedding import embed
-from catchmeup.engine.retriever import Retriever
 from catchmeup.engine.citations import (
     REFUSAL_PHRASE,
     validate_citations,
 )
+from catchmeup.engine.chunking import chunk_all
+from catchmeup.engine.embedding import embed
+from catchmeup.engine.retriever import Retriever
+from catchmeup.engine.spoiler_guard import should_protect_future
 from scripts.test_rag import build_chain, load_units
 
 
@@ -23,6 +23,7 @@ TOP_K = 10
 
 
 def expected_behavior(row):
+    """Determine the expected behavior from benchmark annotations."""
     question_type = str(row["type"]).strip().upper()
     asked_at = int(row["asked_at"])
     reveal_position = int(row["reveal_position"])
@@ -44,6 +45,7 @@ def expected_behavior(row):
 
     return "REVIEW_LABEL"
 
+
 def assess_safety(
     behavior,
     is_refusal,
@@ -51,7 +53,7 @@ def assess_safety(
     future_retrieval_leak,
     answer_present,
 ):
-    """Assess observed safety separately from citation-ID validity."""
+    """Assess observable safety, separately from semantic support."""
 
     if future_retrieval_leak:
         return "FAIL_FUTURE_RETRIEVAL_LEAK"
@@ -77,8 +79,28 @@ def assess_safety(
     return "REVIEW_SEMANTIC_SUPPORT"
 
 
+def requires_manual_review(behavior, safety_assessment):
+    """Flag protected cases and all review/failure outcomes."""
+
+    requires_review_by_behavior = behavior in {
+        "PROTECT_FUTURE",
+        "OUTSIDE_CURRENT_COLLECTION",
+        "UNRESOLVED_MYSTERY",
+    }
+
+    requires_review_by_assessment = str(safety_assessment).startswith(
+        ("REVIEW_", "FAIL_")
+    )
+
+    return (
+        requires_review_by_behavior
+        or requires_review_by_assessment
+    )
+
+
 def empty_result(row, behavior, error):
-    """Return a result with the same fields as a successful evaluation."""
+    """Create a consistent report row when an evaluation errors."""
+
     return {
         "id": str(row["id"]),
         "type": str(row["type"]),
@@ -86,10 +108,11 @@ def empty_result(row, behavior, error):
         "reveal_position": int(row["reveal_position"]),
         "expected_behavior": behavior,
         "question": str(row["question"]),
-        "guard_triggered": False,
         "answer": "",
+        "guard_triggered": False,
         "refusal": False,
         "answer_present": False,
+        "safety_assessment": "FAIL_EMPTY_RESPONSE",
         "retrieved_chunk_count": 0,
         "retrieved_chunk_ids": "",
         "future_retrieval_leak": False,
@@ -104,16 +127,14 @@ def empty_result(row, behavior, error):
 
 
 def main():
+    # 1. Validate inputs before doing any evaluation work.
     if not BENCHMARK.is_file():
         raise FileNotFoundError(f"Benchmark not found: {BENCHMARK}")
 
-    units = load_units(DATA)
-    chunks = chunk_all(units)
+    if not DATA.is_file():
+        raise FileNotFoundError(f"Content data not found: {DATA}")
 
-    retriever = Retriever(chunks, embed)
-    chain = build_chain()
-
-    questions = pd.read_csv(BENCHMARK)
+    questions = pd.read_csv(BENCHMARK, dtype={"id": str})
 
     required = {
         "id",
@@ -131,17 +152,37 @@ def main():
             f"Benchmark missing columns: {sorted(missing)}"
         )
 
+    if questions["id"].duplicated().any():
+        duplicates = questions.loc[
+            questions["id"].duplicated(), "id"
+        ].tolist()
+        raise ValueError(f"Duplicate question IDs: {duplicates}")
+
+    # 2. Load content and construct the retriever.
+    units = load_units(DATA)
+    chunks = chunk_all(units)
+
+    if not chunks:
+        raise ValueError("No chunks were created from the input content.")
+
+    retriever = Retriever(chunks, embed)
+
+    # This initializes the model client; model calls happen in the loop.
+    chain = build_chain()
+
     results = []
 
     print("=" * 72)
     print("ACTUAL ANSWER SAFETY EVALUATION")
-    print("Model calls will be made for each benchmark question.")
+    print("Model calls may be made for benchmark questions.")
     print("=" * 72)
 
+    # 3. Evaluate each question at its annotated asking position.
     for _, row in questions.iterrows():
         question_id = str(row["id"])
         question = str(row["question"])
         position = int(row["asked_at"])
+        reveal_position = int(row["reveal_position"])
         behavior = expected_behavior(row)
 
         print(f"\n[{question_id}] Position {position}: {question}")
@@ -150,6 +191,7 @@ def main():
         usage_metadata = ""
 
         try:
+            # Retrieve only content available at the current position.
             hits = retriever.search(
                 question,
                 position,
@@ -162,7 +204,7 @@ def main():
                 if chunk.position > position
             ]
 
-            # Never send future-position evidence to the model.
+            # Fail closed if retrieval violates the position boundary.
             if future_chunks:
                 raise AssertionError(
                     f"Future chunks retrieved: {future_chunks}"
@@ -176,18 +218,13 @@ def main():
                 for chunk, _ in hits
             )
 
-            
+            # Protect answers whose reveal position is still in the future.
             guard_triggered = (
-            behavior == "PROTECT_FUTURE"
-            and should_protect_future(
-                position,
-                int(row["reveal_position"]),
+                behavior == "PROTECT_FUTURE"
+                and should_protect_future(position, reveal_position)
             )
-        )
 
             if guard_triggered:
-                # The annotated outcome has not been revealed.
-                # Do not send this question to the LLM.
                 answer = REFUSAL_PHRASE
                 citation_valid = True
                 citation_issues = []
@@ -198,13 +235,17 @@ def main():
                 citation_issues = []
 
             else:
-                response = chain.invoke({
-                    "collection": "Gossip Girl Season 1",
-                    "unit_name": "episode",
-                    "position": position,
-                    "question": question,
-                    "evidence": evidence,
-                })
+                # Supply every variable expected by the answer chain.
+                response = chain.invoke(
+                    {
+                        "collection": "Gossip Girl Season 1",
+                        "unit_name": "episode",
+                        "position": position,
+                        "question": question,
+                        "evidence": evidence,
+                        "retry_feedback": "",
+                    }
+                )
 
                 raw_content = response.content
                 answer = (
@@ -223,50 +264,15 @@ def main():
                     default=str,
                 )
 
-                if not answer:
-                    print("WARNING: Empty model response.")
-                    print("Response metadata:", response_metadata)
-                    print("Usage metadata:", usage_metadata)
-
-                is_refusal = answer.startswith(REFUSAL_PHRASE)
+                is_model_refusal = answer.startswith(REFUSAL_PHRASE)
 
                 citation_valid, citation_issues = validate_citations(
                     answer,
                     {chunk.chunk_id for chunk, _ in hits},
-                    allow_uncited=is_refusal,
+                    allow_uncited=is_model_refusal,
                 )
 
-
-                raw_content = response.content
-                answer = (
-                    raw_content
-                    if isinstance(raw_content, str)
-                    else ""
-                ).strip()
-
-                response_metadata = json.dumps(
-                    response.response_metadata or {},
-                    default=str,
-                )
-
-                usage_metadata = json.dumps(
-                    response.usage_metadata or {},
-                    default=str,
-                )
-
-                if not answer:
-                    print("WARNING: Empty model response.")
-                    print("Response metadata:", response_metadata)
-                    print("Usage metadata:", usage_metadata)
-
-                is_refusal = answer.startswith(REFUSAL_PHRASE)
-
-                citation_valid, citation_issues = validate_citations(
-                    answer,
-                    {chunk.chunk_id for chunk, _ in hits},
-                    allow_uncited=is_refusal,
-                )
-
+            # 4. Assess the final response consistently for every path.
             is_refusal = answer.startswith(REFUSAL_PHRASE)
             answer_present = bool(answer)
 
@@ -280,18 +286,19 @@ def main():
                 observed_result = "ANSWERED"
 
             safety_assessment = assess_safety(
-            behavior=behavior,
-            is_refusal=is_refusal,
-            citation_valid=citation_valid,
-            future_retrieval_leak=bool(future_chunks),
-            answer_present=answer_present,
-        )
+                behavior=behavior,
+                is_refusal=is_refusal,
+                citation_valid=citation_valid,
+                future_retrieval_leak=bool(future_chunks),
+                answer_present=answer_present,
+            )
 
+            # 5. Build one row for the report.
             result = {
                 "id": question_id,
                 "type": str(row["type"]),
                 "asked_at": position,
-                "reveal_position": int(row["reveal_position"]),
+                "reveal_position": reveal_position,
                 "expected_behavior": behavior,
                 "question": question,
                 "answer": answer,
@@ -307,11 +314,10 @@ def main():
                 "citation_valid": citation_valid,
                 "citation_issues": "; ".join(citation_issues),
                 "observed_result": observed_result,
-                "manual_safety_review_required": behavior in {
-                    "PROTECT_FUTURE",
-                    "OUTSIDE_CURRENT_COLLECTION",
-                    "UNRESOLVED_MYSTERY",
-                },
+                "manual_safety_review_required": requires_manual_review(
+                    behavior,
+                    safety_assessment,
+                ),
                 "response_metadata": response_metadata,
                 "usage_metadata": usage_metadata,
                 "error": "",
@@ -323,7 +329,6 @@ def main():
                 behavior,
                 f"{type(error).__name__}: {error}",
             )
-
             result["response_metadata"] = response_metadata
             result["usage_metadata"] = usage_metadata
 
@@ -331,7 +336,11 @@ def main():
 
         print("Expected:", result["expected_behavior"])
         print("Observed:", result["observed_result"])
-        print("Citations valid:", result["citation_valid"])
+        print("Safety assessment:", result["safety_assessment"])
+        print(
+            "Manual review required:",
+            result["manual_safety_review_required"],
+        )
 
         if result["error"]:
             print("Error:", result["error"])
@@ -341,6 +350,7 @@ def main():
     if not results:
         raise RuntimeError("No benchmark questions were evaluated.")
 
+    # 6. Write a consistent CSV report.
     REPORT.parent.mkdir(parents=True, exist_ok=True)
 
     with REPORT.open(
@@ -355,6 +365,7 @@ def main():
         writer.writeheader()
         writer.writerows(results)
 
+    # 7. Summarize outcomes and safety checks.
     print("\n" + "=" * 72)
     print("EVALUATION SUMMARY")
     print("=" * 72)
@@ -368,10 +379,7 @@ def main():
         "/",
         total,
     )
-    print(
-        "Refusals:",
-        sum(result["refusal"] for result in results),
-    )
+    print("Refusals:", sum(result["refusal"] for result in results))
     print(
         "Valid citation checks:",
         sum(result["citation_valid"] for result in results),
@@ -382,21 +390,26 @@ def main():
         "Future retrieval leaks:",
         sum(result["future_retrieval_leak"] for result in results),
     )
+    print("Errors:", sum(bool(result["error"]) for result in results))
     print(
-        "Errors:",
-        sum(bool(result["error"]) for result in results),
+        "Manual reviews required:",
+        sum(
+            result["manual_safety_review_required"]
+            for result in results
+        ),
     )
-
     print("Results saved to:", REPORT)
+
     print(
         "\nImportant: citation-ID validity does not prove semantic "
-        "support. Future-answer safety still requires review."
+        "support. Answer quality and benchmark annotations still "
+        "require human review."
     )
-    print("\nSafety assessment counts:")
 
-    for status in sorted({
-        result["safety_assessment"] for result in results
-    }):
+    print("\nSafety assessment counts:")
+    for status in sorted(
+        {result["safety_assessment"] for result in results}
+    ):
         count = sum(
             result["safety_assessment"] == status
             for result in results
@@ -404,8 +417,8 @@ def main():
         print(f"{status}: {count}")
 
     print(
-    "Deterministic guard triggers:",
-    sum(result["guard_triggered"] for result in results),
+        "Deterministic guard triggers:",
+        sum(result["guard_triggered"] for result in results),
     )
 
 
