@@ -71,5 +71,30 @@ def main():
     print("\nPASS: Invalid citation was rejected and corrected.")
 
 
-if __name__ == "__main__":
-    main()
+
+def test_invalid_citation_is_rejected_and_corrected():
+    units = load_units("data/processed/gossip-girl_s1.json")
+    chunks = chunk_all(units)
+    retriever = Retriever(chunks, embed)
+    fake_chain = FakeChain()
+    graph = build_workflow()
+
+    result = graph.invoke({
+        "question": "Who is Serena?",
+        "current_position": 7,
+        "collection_name": "Gossip Girl",
+        "unit_name": "episode",
+        "expected_behavior": "ANSWER",
+        "retriever": retriever,
+        "answer_chain": fake_chain,
+        "retry_count": 0,
+        "max_retries": 2,
+    })
+
+    assert result.get("status") == "VALIDATED"
+    assert result.get("citation_valid") is True
+    assert result.get("retry_count") == 1
+    assert fake_chain.calls == 2
+    assert bool(fake_chain.feedback_seen[-1])
+    assert "[fake-chunk-99]" not in result.get("answer", "")
+

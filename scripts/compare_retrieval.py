@@ -22,14 +22,32 @@ METHODS = {
     "Hybrid": "search_hybrid",
 }
 
+# NEW: Evidence chunk whose retrieval rank we want to inspect.
+TARGET_EVIDENCE = {
+    "q02": "s01e01-c01",
+}
+
+
+def find_rank(hits, predicate):
+    """Return the 1-based rank of the first matching chunk, or None."""
+    return next(
+        (
+            rank
+            for rank, (chunk, score) in enumerate(hits, start=1)
+            if predicate(chunk)
+        ),
+        None,
+    )
+
 
 def evaluate_method(retriever, questions, quotes, method_name, method):
-    """Evaluate ordinary retrieval without scoring unrevealed evidence."""
+    """Evaluate retrieval and inspect specifically targeted evidence."""
 
     evaluated_ranks = []
     missing_quotes = []
     delayed_excluded = []
     leak_count = 0
+    target_ranks = {}
 
     print("\n" + "=" * 65)
     print(f"{method_name.upper()} RETRIEVAL")
@@ -43,14 +61,14 @@ def evaluate_method(retriever, questions, quotes, method_name, method):
         asked_at = int(row["asked_at"])
         reveal_position = int(row["reveal_position"])
 
-        # Run retrieval for every question so that every result is
-        # checked for future-content leakage, even if not scoreable.
+        # Retrieve evidence at the position when the question is asked.
         hits = search_function(
             question,
             asked_at,
             k=SEARCH_K,
         )
 
+        # Check all questions for future-content leakage.
         has_leak = any(
             chunk.position > asked_at
             for chunk, score in hits
@@ -70,8 +88,28 @@ def evaluate_method(retriever, questions, quotes, method_name, method):
                 f"{chunk.label} | {chunk.text[:100]!r}"
             )
 
-        # A question with evidence revealed later must not contribute
-        # to ordinary retrieval ranking metrics.
+        # NEW: Rank the exact target chunk independently of quote matching.
+        target_chunk_id = TARGET_EVIDENCE.get(question_id)
+
+        if target_chunk_id:
+            target_rank = find_rank(
+                hits,
+                lambda chunk: chunk.chunk_id == target_chunk_id,
+            )
+            target_ranks[question_id] = target_rank
+
+            if target_rank is None:
+                print(
+                    f"  Target evidence {target_chunk_id}: "
+                    f"NOT FOUND in top {SEARCH_K}"
+                )
+            else:
+                print(
+                    f"  Target evidence {target_chunk_id}: "
+                    f"rank {target_rank}"
+                )
+
+        # Do not score evidence that had not been revealed yet.
         if reveal_position > asked_at:
             delayed_excluded.append(question_id)
             print(
@@ -89,23 +127,19 @@ def evaluate_method(retriever, questions, quotes, method_name, method):
 
         quote = quote.strip().casefold()
 
-        rank = next(
-            (
-                i
-                for i, (chunk, score) in enumerate(hits, start=1)
-                if quote in chunk.text.casefold()
-            ),
-            None,
+        quote_rank = find_rank(
+            hits,
+            lambda chunk: quote in chunk.text.casefold(),
         )
 
-        evaluated_ranks.append(rank)
+        evaluated_ranks.append(quote_rank)
 
-        if rank is None:
+        if quote_rank is None:
             print(
                 f"  Gold evidence rank: not found in top {SEARCH_K}"
             )
         else:
-            print(f"  Gold evidence rank: {rank}")
+            print(f"  Gold evidence rank: {quote_rank}")
 
     total = len(evaluated_ranks)
     rank_1 = sum(rank == 1 for rank in evaluated_ranks)
@@ -132,6 +166,8 @@ def evaluate_method(retriever, questions, quotes, method_name, method):
         "recall_at_search_k": (
             recall_search_k / total if total else 0
         ),
+        # NEW: Keep q02's exact evidence rank for the final comparison.
+        "q02_target_rank": target_ranks.get("q02"),
     }
 
     print(f"\n{method_name} summary")
@@ -150,15 +186,20 @@ def evaluate_method(retriever, questions, quotes, method_name, method):
         print("Delayed questions:", ", ".join(delayed_excluded))
 
     if missing_quotes:
-        print("Eligible questions missing quotes:", ", ".join(missing_quotes))
+        print(
+            "Eligible questions missing quotes:",
+            ", ".join(missing_quotes),
+        )
 
     return results
 
 
 def main():
-    # 1. Validate required inputs.
+    # 1. Validate required input files.
     required_files = [DATA, QUESTIONS, QUOTES]
-    missing_files = [str(path) for path in required_files if not path.is_file()]
+    missing_files = [
+        str(path) for path in required_files if not path.is_file()
+    ]
 
     if missing_files:
         raise FileNotFoundError(
@@ -174,6 +215,16 @@ def main():
         raise ValueError("No chunks were created from the input content.")
 
     print(f"Loaded {len(units)} units and {len(chunks)} chunks.")
+
+    # NEW: Confirm the target evidence actually exists in the dataset.
+    chunk_ids = {chunk.chunk_id for chunk in chunks}
+
+    for question_id, target_id in TARGET_EVIDENCE.items():
+        if target_id not in chunk_ids:
+            raise ValueError(
+                f"Target chunk {target_id} for {question_id} "
+                "does not exist in the loaded dataset."
+            )
 
     retriever = Retriever(chunks, embed)
 
@@ -211,7 +262,7 @@ def main():
 
     quotes = dict(zip(quote_table["id"], quote_table["quote"]))
 
-    # 4. Compare all methods using identical questions and chunks.
+    # 4. Compare every retrieval method using identical inputs.
     all_results = []
 
     for method_name, method in METHODS.items():
@@ -224,7 +275,7 @@ def main():
         )
         all_results.append(result)
 
-    # 5. Print a compact comparison.
+    # 5. Print the standard metrics and q02's target rank.
     print("\n" + "=" * 65)
     print("FINAL RETRIEVAL COMPARISON")
     print("=" * 65)
@@ -239,6 +290,7 @@ def main():
         "top1_rate",
         "recall_at_k",
         "recall_at_search_k",
+        "q02_target_rank",
         "leaks",
     ]
 
@@ -253,7 +305,7 @@ def main():
         )
     )
 
-    # 6. Fail the evaluation if any method retrieved future content.
+    # 6. Fail if any method retrieved future content.
     total_leaks = sum(result["leaks"] for result in all_results)
 
     if total_leaks:
@@ -264,8 +316,9 @@ def main():
 
     print("\nAll three methods passed the position-leak check.")
     print(
-        "Reminder: retrieval scores are based on exact gold-quote "
-        "matching and the currently annotated benchmark."
+        "Reminder: retrieval scores use exact gold-quote matching "
+        "on the currently annotated benchmark. Results are based "
+        "on a small evaluation set."
     )
 
 
