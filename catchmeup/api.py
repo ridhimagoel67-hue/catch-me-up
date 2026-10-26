@@ -1,4 +1,15 @@
-
+from pydantic import BaseModel, Field
+from catchmeup.ingestion import ingest_episode_collection
+from catchmeup.extraction import (
+    ExtractionRequest,
+    ExtractionResponse,
+    extract_source,
+)
+from catchmeup.discovery import (
+    DiscoveryRequest,
+    DiscoveryResponse,
+    discover_sources,
+)
 from contextlib import asynccontextmanager
 from pathlib import Path
 from threading import Lock
@@ -18,6 +29,12 @@ from scripts.test_rag import build_chain, load_units
 
 DEFAULT_COLLECTION_ID = "gossip-girl-s1"
 MAX_RETRIES = 2
+
+class IngestRequest(BaseModel):
+    collection_id: str = Field(min_length=1, max_length=100)
+    name: str = Field(min_length=1, max_length=200)
+    source_url: str = Field(min_length=1, max_length=2000)
+    content: str = Field(min_length=1, max_length=50000)
 
 
 def build_runtime(config) -> dict[str, Any]:
@@ -218,7 +235,44 @@ def create_app(
             retry_count=result.get("retry_count", 0),
         )
 
+    @app.post(
+        "/discover",
+        response_model=DiscoveryResponse,
+)
+    def discover(request: DiscoveryRequest):
+        return discover_sources(request)
+
+
+    @app.post(
+        "/extract",
+        response_model=ExtractionResponse,
+)
+    def extract(request: ExtractionRequest):
+        return extract_source(request)
+    
+
+
+    @app.post("/ingest")
+    def ingest(request: IngestRequest):
+        try:
+            result = ingest_episode_collection(
+                content=request.content,
+                collection_id=request.collection_id,
+                name=request.name,
+                source_url=request.source_url,
+            )
+            return {
+                "status": "REGISTERED",
+                **result,
+            }
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=str(exc),
+            ) from None
+
     return app
 
+     
 
 app = create_app()
