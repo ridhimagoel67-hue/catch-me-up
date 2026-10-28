@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from catchmeup.ingestion import ingest_episode_collection
+from catchmeup.ingestion import ingest_content_collection
 from catchmeup.extraction import (
     ExtractionRequest,
     ExtractionResponse,
@@ -34,7 +34,8 @@ class IngestRequest(BaseModel):
     collection_id: str = Field(min_length=1, max_length=100)
     name: str = Field(min_length=1, max_length=200)
     source_url: str = Field(min_length=1, max_length=2000)
-    content: str = Field(min_length=1, max_length=50000)
+    content: str = Field(min_length=1, max_length=2_000_000)
+    content_type: str = Field(default="show", pattern="^(show|book|course|podcast|other)$")
 
 
 def build_runtime(config) -> dict[str, Any]:
@@ -255,11 +256,12 @@ def create_app(
     @app.post("/ingest")
     def ingest(request: IngestRequest):
         try:
-            result = ingest_episode_collection(
+            result = ingest_content_collection(
                 content=request.content,
                 collection_id=request.collection_id,
                 name=request.name,
                 source_url=request.source_url,
+                content_type=request.content_type,
             )
             return {
                 "status": "REGISTERED",

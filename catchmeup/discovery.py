@@ -13,8 +13,8 @@ TAVILY_SEARCH_URL = "https://api.tavily.com/search"
 
 SEARCH_TERMS = {
     "show": (
-        "official episode guide episode list "
-        "season summaries episode order"
+        "full episode transcript episode script "
+        "dialogue transcript subtitles"
     ),
     "book": (
         "chapter list table of contents "
@@ -99,6 +99,7 @@ class DiscoveryRequest(BaseModel):
         pattern="^(show|book|course|podcast|other)$",
     )
     max_results: int = Field(default=5, ge=1, le=10)
+    search_mode: str = Field(default="transcripts", pattern="^(transcripts|episode_guide)$")
 
 
 class SourceResult(BaseModel):
@@ -145,6 +146,23 @@ def classify_source(
     text = f"{title} {snippet}".lower()
     host = get_host(url)
     path = urlparse(url).path.lower()
+
+
+        # Transcript sources take priority over recaps and episode guides.
+    transcript_terms = (
+        "transcript",
+        "transcripts",
+        "full script",
+        "episode script",
+        "dialogue",
+        "subtitles",
+    )
+
+    if any(term in text for term in transcript_terms):
+        return (
+            "transcript",
+            ["Title or snippet suggests transcript content"],
+        )
 
     # 1. Recaps and commentary take priority.
     if any(term in title_lower for term in RECAP_TERMS):
@@ -254,6 +272,7 @@ def rank_source(
     )
 
     bonuses = {
+        "transcript": 0.30,
         "structured_guide": 0.12,
         "likely_official": 0.08,
         "reference": 0.04,
@@ -334,10 +353,24 @@ def discover_sources(
             detail="Web discovery is not configured.",
         )
 
-    query = (
-        f'"{request.title.strip()}" '
-        f'{SEARCH_TERMS[request.content_type]}'
-    )
+    # Episode-guide discovery must use guide-focused terms. Previously this
+    # parameter was accepted by the API but ignored, so the guide step searched
+    # for transcripts and frequently selected transcript pages instead.
+    if request.search_mode == "episode_guide":
+        guide_terms = {
+            "show": "complete episode list all seasons episode guide season episode titles",
+            "podcast": "complete episode list episode guide episode titles descriptions",
+            "book": "table of contents chapter list chapter titles",
+            "course": "official course curriculum complete module lesson list",
+            "other": "structured content index ordered list",
+        }
+        search_terms = guide_terms[request.content_type]
+    else:
+        search_terms = SEARCH_TERMS[request.content_type]
+
+    # Do not quote the whole query: exact-phrase quoting suppresses useful
+    # results when the title and episode-guide terms vary across sources.
+    query = f'{request.title.strip()} {search_terms}'
 
     try:
         response = httpx.post(
@@ -450,11 +483,23 @@ def discover_sources(
             )
         )
 
-    # Sort by our computed score, highest first.
-    results.sort(
-        key=lambda result: result.ranking_score,
-        reverse=True,
-    )
+    # Sort according to the requested task. For guide discovery, prioritize
+    # actual episode lists/guides over pages classified as transcripts or recaps.
+    if request.search_mode == "episode_guide":
+        guide_markers = ("episode guide", "episode list", "list of episodes", "season guide", "episodes")
+        results.sort(
+            key=lambda result: (
+                result.source_type == "structured_guide",
+                any(marker in result.title.lower() for marker in guide_markers),
+                result.ranking_score,
+            ),
+            reverse=True,
+        )
+    else:
+        results.sort(
+            key=lambda result: result.ranking_score,
+            reverse=True,
+        )
 
     return DiscoveryResponse(
         query=query,

@@ -5,6 +5,19 @@ import numpy as np
 from catchmeup.engine.chunking import Chunk
 from catchmeup.engine.retriever import Retriever
 
+def test_hybrid_search_never_returns_future_chunks():
+    retriever = Retriever(make_chunks(), fake_embed)
+
+    for position in range(0, 11):
+        results = retriever.search_hybrid(
+            query="secret wedding",
+            position=position,
+            k=50,
+        )
+
+        for chunk, _ in results:
+            assert chunk.position <= position
+
 
 def fake_embed(texts):
     

@@ -1,4 +1,6 @@
 
+"""Extract substantive source content using Tavily."""
+
 import os
 from urllib.parse import urlparse
 
@@ -26,8 +28,7 @@ class ExtractionResponse(BaseModel):
 
 
 def validate_source_url(url: str) -> str:
-    """Accept only public-looking HTTPS URLs."""
-
+    """Accept HTTPS URLs while rejecting obvious local hostnames."""
     parsed = urlparse(url.strip())
 
     if (
@@ -43,12 +44,9 @@ def validate_source_url(url: str) -> str:
 
     hostname = parsed.hostname.lower()
 
-    # Reject localhost and obvious local-network hostnames.
     if (
         hostname == "localhost"
-        or hostname.endswith(".localhost")
-        or hostname.endswith(".local")
-        or hostname.endswith(".internal")
+        or hostname.endswith((".localhost", ".local", ".internal"))
     ):
         raise HTTPException(
             status_code=422,
@@ -59,6 +57,7 @@ def validate_source_url(url: str) -> str:
 
 
 def extract_source(request: ExtractionRequest) -> ExtractionResponse:
+    """Extract deeper content and combine successful results."""
     api_key = os.getenv("TAVILY_API_KEY")
 
     if not api_key:
@@ -72,17 +71,14 @@ def extract_source(request: ExtractionRequest) -> ExtractionResponse:
     try:
         response = httpx.post(
             TAVILY_EXTRACT_URL,
-            headers={
-                "Authorization": f"Bearer {api_key}",
-            },
+            headers={"Authorization": f"Bearer {api_key}"},
             json={
                 "urls": [url],
-                "extract_depth": "basic",
-                "format": "text",
+                "extract_depth": "advanced",
+                "format": "markdown",
             },
-            timeout=30.0,
+            timeout=45.0,
         )
-
         response.raise_for_status()
         payload = response.json()
 
@@ -93,24 +89,17 @@ def extract_source(request: ExtractionRequest) -> ExtractionResponse:
         ) from exc
 
     except httpx.HTTPStatusError as exc:
-        status_code = exc.response.status_code
+        if exc.response.status_code in (401, 403):
+            detail = "Tavily rejected the API credentials."
+            status_code = 502
+        elif exc.response.status_code == 429:
+            detail = "Tavily rate limit or quota reached."
+            status_code = 503
+        else:
+            detail = "The extraction provider returned an error."
+            status_code = 502
 
-        if status_code in (401, 403):
-            raise HTTPException(
-                status_code=502,
-                detail="Tavily rejected the API credentials.",
-            ) from exc
-
-        if status_code == 429:
-            raise HTTPException(
-                status_code=503,
-                detail="Tavily rate limit or quota reached.",
-            ) from exc
-
-        raise HTTPException(
-            status_code=502,
-            detail="The extraction provider returned an error.",
-        ) from exc
+        raise HTTPException(status_code=status_code, detail=detail) from exc
 
     except (httpx.RequestError, ValueError) as exc:
         raise HTTPException(
@@ -118,39 +107,64 @@ def extract_source(request: ExtractionRequest) -> ExtractionResponse:
             detail="Could not extract the selected source.",
         ) from exc
 
-    failed_results = payload.get("failed_results", [])
-
-    if failed_results:
+    if not isinstance(payload, dict):
         raise HTTPException(
-            status_code=422,
-            detail="Tavily could not extract the selected source.",
+            status_code=502,
+            detail="The extraction provider returned an invalid response.",
         )
 
     results = payload.get("results", [])
+    if not isinstance(results, list):
+        results = []
 
-    if not results:
-        raise HTTPException(
-            status_code=422,
-            detail="No extractable content was returned.",
+    # Keep every successful non-empty result instead of silently
+    # discarding content after the first result.
+    sections = []
+    source_urls = []
+
+    for result in results:
+        if not isinstance(result, dict):
+            continue
+
+        raw_content = result.get("raw_content")
+        if not isinstance(raw_content, str) or not raw_content.strip():
+            continue
+
+        result_url = result.get("url") or url
+        source_urls.append(result_url)
+        sections.append(
+            f"Source: {result_url}\n\n{raw_content.strip()}"
         )
 
-    extracted = results[0]
-    content = extracted.get("raw_content")
+    if not sections:
+        failed_results = payload.get("failed_results", [])
+        if failed_results:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Tavily could not extract this page. "
+                    "Try a different source with readable text."
+                ),
+            )
 
-    if not isinstance(content, str) or not content.strip():
         raise HTTPException(
             status_code=422,
-            detail="The selected source returned empty content.",
+            detail=(
+                "No readable content was returned. "
+                "Try a source containing summaries or full text, "
+                "not just a list of titles."
+            ),
         )
 
-    content = content.strip()
+    content = "\n\n---\n\n".join(sections)
     truncated = len(content) > MAX_CONTENT_CHARACTERS
     content = content[:MAX_CONTENT_CHARACTERS]
 
     return ExtractionResponse(
-        url=extracted.get("url", url),
+        url=source_urls[0] if source_urls else url,
         status="EXTRACTED",
         content=content,
         character_count=len(content),
         truncated=truncated,
     )
+
